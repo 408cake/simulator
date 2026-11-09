@@ -7,48 +7,73 @@ import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.Animation;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.utils.JsonReader;
+import com.badlogic.gdx.utils.JsonValue;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 
 public class Main extends ApplicationAdapter {
 
-    private static final float WORLD_WIDTH = 2600;
-    private static final float MOVE_SPEED = 260;
+    // 스테이지 제어 변수
+    private String currentStageId = "01_testshoot";
+    private String nextStageId = "";
+    private String stageTitle = "";
+    private String stageHint = "";
+    private int hitsRequired = 5;
+    private int currentHitCount = 0;
+    private boolean stageClear = false;
+
+    // 스테이지별 반동 설정 필드
+    private float stageRecoilPower = 24.0f;
+    private float stageRecoilRecovery = 180.0f;
+
+    // 클리어 팝업 '다음 스테이지' 버튼 영역 (800x600 UI 기준)
+    private final Rectangle nextStageBtnBounds = new Rectangle(300, 220, 200, 50);
+
+    private float worldWidth = 2600;
+    private static final float MOVE_SPEED = 200;
+    private static final float RUN_SPEED = 320;
     private static final float JUMP_SPEED = 650;
     private static final float BASE_GRAVITY = 1700;
 
     private static final float SIGHT_FINE_TUNE_SPEED = 140f;
     private static final float GUN_BODY_WIDTH = 1011f;
     private static final float GUN_BODY_HEIGHT = 758f;
-
-    // 가늠쇠 크기
     private static final float FRONT_SIGHT_W = 64f;
     private static final float FRONT_SIGHT_H = 96f;
 
-    // 호흡 파라미터
     private static final float MAX_BREATH = 100f;
     private float currentBreath = MAX_BREATH;
     private boolean isHoldingBreath = false;
 
-    private enum AimStance {
-        NONE, CROUCH, PRONE
-    }
+    private enum PlayerMotionState { IDLE, WALK, RUN }
+    private PlayerMotionState motionState = PlayerMotionState.IDLE;
+
+    private enum AimStance { NONE, STAND, CROUCH, PRONE }
     private AimStance currentStance = AimStance.NONE;
 
     private SpriteBatch batch;
     private ShapeRenderer shapeRenderer;
     private BitmapFont font;
 
-    private Texture playerTexture, blockTexture;
-    private Texture targetTexture;
+    private Texture idleSheet, walkSheet, runSheet;
+    private Animation<TextureRegion> idleAnim;
+    private Animation<TextureRegion> walkAnim;
+    private Animation<TextureRegion> runAnim;
+    private float stateTime = 0f;
+    private boolean facingLeft = false;
+
+    private Texture blockTexture, targetTexture;
     private Texture gunBodyTexture, frontSightTexture;
     private Sound shotSound;
 
@@ -56,23 +81,20 @@ public class Main extends ApplicationAdapter {
     private FitViewport viewport;
     private OrthographicCamera uiCamera;
 
-    private final Rectangle player = new Rectangle(80, 60, 32, 44);
+    // 충돌 박스: 실제 몸체 두께 36, 높이 120
+    private final Rectangle player = new Rectangle(100, 100, 36, 120);
     private final Array<Rectangle> blocks = new Array<>();
     private final Array<Rectangle> targets = new Array<>();
-
-    // 표적지별 탄흔 기록 (0.0~1.0 정규화 좌표 저장)
     private final Array<Array<Vector2>> bulletHoles = new Array<>();
 
     private float velocityX, velocityY;
     private boolean grounded;
-    private boolean gameOver;
 
     private boolean isInspectingTarget = false;
     private int inspectingTargetIndex = -1;
 
     private final Vector3 mousePos = new Vector3();
 
-    // 조준 좌표 및 오프셋
     private float aimBaseX = 400f;
     private float aimBaseY = 300f;
     private float swayTime = 0f;
@@ -81,12 +103,10 @@ public class Main extends ApplicationAdapter {
     private float sightOffsetX = 0f;
     private float sightOffsetY = 0f;
 
-    // 최종 렌더링 좌표
     private float gunBodyX = 400f;
     private float gunBodyY = 240f;
     private final Vector3 frontSightPos = new Vector3(400, 300, 0);
 
-    // 사격 쿨다운 및 반동
     private float shootCooldown = 0f;
     private float recoilOffsetY = 0f;
 
@@ -96,49 +116,93 @@ public class Main extends ApplicationAdapter {
         shapeRenderer = new ShapeRenderer();
         font = new BitmapFont();
 
-        playerTexture = new Texture(Gdx.files.internal("player.png"));
+        idleSheet = new Texture(Gdx.files.internal("Idle.png"));
+        walkSheet = new Texture(Gdx.files.internal("Walk.png"));
+        runSheet  = new Texture(Gdx.files.internal("Run.png"));
+
+        TextureRegion[][] idleTmp = TextureRegion.split(idleSheet, idleSheet.getWidth() / 9, idleSheet.getHeight());
+        idleAnim = new Animation<>(0.12f, idleTmp[0]);
+        idleAnim.setPlayMode(Animation.PlayMode.LOOP);
+
+        TextureRegion[][] walkTmp = TextureRegion.split(walkSheet, walkSheet.getWidth() / 8, walkSheet.getHeight());
+        walkAnim = new Animation<>(0.10f, walkTmp[0]);
+        walkAnim.setPlayMode(Animation.PlayMode.LOOP);
+
+        TextureRegion[][] runTmp = TextureRegion.split(runSheet, runSheet.getWidth() / 8, runSheet.getHeight());
+        runAnim = new Animation<>(0.08f, runTmp[0]);
+        runAnim.setPlayMode(Animation.PlayMode.LOOP);
+
         blockTexture = new Texture(Gdx.files.internal("block.png"));
         targetTexture = new Texture(Gdx.files.internal("target.png"));
         gunBodyTexture = new Texture(Gdx.files.internal("gun_body.png"));
         frontSightTexture = new Texture(Gdx.files.internal("front_sight.png"));
 
-        // 사격 사운드 로드 (assets/shot.mp3 파일 필요)
         if (Gdx.files.internal("shot.mp3").exists()) {
             shotSound = Gdx.audio.newSound(Gdx.files.internal("shot.mp3"));
         } else if (Gdx.files.internal("shot.wav").exists()) {
             shotSound = Gdx.audio.newSound(Gdx.files.internal("shot.wav"));
         }
 
+        // 2D 횡스크롤 게임 화면 뷰포트 (480x360)
         camera = new OrthographicCamera();
-        camera.setToOrtho(false, 800, 600);
-        viewport = new FitViewport(800, 600, camera);
+        camera.setToOrtho(false, 480, 360);
+        viewport = new FitViewport(480, 360, camera);
         viewport.update(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), false);
 
         uiCamera = new OrthographicCamera(800, 600);
         uiCamera.position.set(400, 300, 0);
         uiCamera.update();
 
-        buildRangeMap();
+        // 첫 번째 스테이지 로드
+        loadStage("01_testshoot");
     }
 
-    private void buildRangeMap() {
+    public void loadStage(String stageId) {
+        String path = "stages/" + stageId + ".json";
+        if (!Gdx.files.internal(path).exists()) {
+            Gdx.app.error("StageLoader", "파일을 찾을 수 없습니다: " + path);
+            return;
+        }
+
+        JsonValue root = new JsonReader().parse(Gdx.files.internal(path));
+        currentStageId = root.getString("id", stageId);
+        stageTitle = root.getString("name", "스테이지");
+        nextStageId = root.getString("nextStage", "");
+        hitsRequired = root.getInt("targetHitsRequired", 5);
+        worldWidth = root.getFloat("width", 2600f);
+        stageHint = root.getString("hint", "");
+
+        stageRecoilPower = root.getFloat("recoilPower", 24.0f);
+        stageRecoilRecovery = root.getFloat("recoilRecovery", 180.0f);
+
+        currentHitCount = 0;
+        stageClear = false;
+        currentStance = AimStance.NONE;
+        isInspectingTarget = false;
+
+        float spawnX = root.getFloat("spawnX", 100f);
+        float spawnY = root.getFloat("spawnY", 100f);
+        player.setPosition(spawnX, spawnY);
+        velocityX = 0;
+        velocityY = 0;
+
         blocks.clear();
+        JsonValue platforms = root.get("platforms");
+        if (platforms != null) {
+            for (JsonValue p = platforms.child; p != null; p = p.next) {
+                blocks.add(new Rectangle(p.getFloat("x"), p.getFloat("y"), p.getFloat("width"), p.getFloat("height")));
+            }
+        }
+
         targets.clear();
         bulletHoles.clear();
-
-        blocks.add(new Rectangle(0, 0, 1000, 60));
-        blocks.add(new Rectangle(1000, 0, 800, 110));
-        blocks.add(new Rectangle(1800, 0, 800, 170));
-
-        blocks.add(new Rectangle(-40, 0, 40, 600));
-        blocks.add(new Rectangle(2600, 0, 40, 600));
-
-        // 표적지 배치 및 탄흔 배열 초기화
-        targets.add(new Rectangle(980, 60, 24, 75));
-        bulletHoles.add(new Array<>());
-
-        targets.add(new Rectangle(1780, 110, 24, 75));
-        bulletHoles.add(new Array<>());
+        JsonValue tgList = root.get("targets");
+        if (tgList != null) {
+            for (JsonValue t = tgList.child; t != null; t = t.next) {
+                targets.add(new Rectangle(t.getFloat("x"), t.getFloat("y"), t.getFloat("width", 36f), t.getFloat("height", 110f)));
+                bulletHoles.add(new Array<>());
+            }
+        }
     }
 
     @Override
@@ -156,8 +220,14 @@ public class Main extends ApplicationAdapter {
             renderSideView();
         }
 
+        renderHUD();
+
         if (isInspectingTarget) {
             renderTargetInspectionModal();
+        }
+
+        if (stageClear) {
+            renderClearModal();
         }
     }
 
@@ -173,7 +243,26 @@ public class Main extends ApplicationAdapter {
             batch.draw(targetTexture, target.x, target.y, target.width, target.height);
         }
 
-        batch.draw(playerTexture, player.x, player.y, player.width, player.height);
+        TextureRegion currentFrame;
+        switch (motionState) {
+            case RUN:  currentFrame = runAnim.getKeyFrame(stateTime); break;
+            case WALK: currentFrame = walkAnim.getKeyFrame(stateTime); break;
+            default:   currentFrame = idleAnim.getKeyFrame(stateTime); break;
+        }
+
+        if (facingLeft && !currentFrame.isFlipX()) {
+            currentFrame.flip(true, false);
+        } else if (!facingLeft && currentFrame.isFlipX()) {
+            currentFrame.flip(true, false);
+        }
+
+        // 충돌 박스 중심에 맞춰 스프라이트 렌더링
+        float visualW = 90f;
+        float visualH = 120f;
+        float drawX = player.x + (player.width - visualW) / 2f;
+        float drawY = player.y;
+
+        batch.draw(currentFrame, drawX, drawY, visualW, visualH);
 
         int nearIdx = getNearbyTargetIndex();
         if (nearIdx != -1 && !isInspectingTarget) {
@@ -184,27 +273,28 @@ public class Main extends ApplicationAdapter {
     }
 
     private void renderFirstPersonView() {
-        float eyeY = (currentStance == AimStance.PRONE)
-            ? player.y + player.height * 0.25f
-            : player.y + player.height * 0.55f;
+        float eyeY;
+        if (currentStance == AimStance.PRONE) {
+            eyeY = player.y + player.height * 0.25f;
+        } else if (currentStance == AimStance.CROUCH) {
+            eyeY = player.y + player.height * 0.55f;
+        } else {
+            eyeY = player.y + player.height * 0.85f;
+        }
 
         Array<Rectangle> forwardBlocks = new Array<>();
         for (Rectangle b : blocks) {
-            if (b.x + b.width > player.x) {
-                forwardBlocks.add(b);
-            }
+            if (b.x + b.width > player.x) forwardBlocks.add(b);
         }
         forwardBlocks.sort((a, b) -> Float.compare(b.x, a.x));
 
-        // 1. 단면 지형 렌더링
         shapeRenderer.setProjectionMatrix(uiCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
 
         for (Rectangle b : forwardBlocks) {
             float dist = Math.max(1f, b.x - player.x);
-            float depthAlpha = MathUtils.clamp(1f - (dist / (WORLD_WIDTH - player.x)), 0.25f, 0.95f);
+            float depthAlpha = MathUtils.clamp(1f - (dist / (worldWidth - player.x)), 0.25f, 0.95f);
             shapeRenderer.setColor(0.35f * depthAlpha, 0.38f * depthAlpha, 0.42f * depthAlpha, 1f);
-
             float screenY = 300f + (b.y - eyeY);
             shapeRenderer.rect(0, screenY, 800, b.height);
         }
@@ -213,27 +303,27 @@ public class Main extends ApplicationAdapter {
         batch.setProjectionMatrix(uiCamera.combined);
         batch.begin();
 
-        // 2. 전방 표적지 렌더링
-        for (Rectangle target : targets) {
-            if (target.x + target.width > player.x) {
-                float targetScreenY = 300f + (target.y - eyeY);
-                float targetWidthInAim = 32f;
-                batch.draw(targetTexture, 400 - (targetWidthInAim / 2f), targetScreenY, targetWidthInAim, target.height);
-            }
+        Array<Rectangle> forwardTargets = new Array<>();
+        for (Rectangle t : targets) {
+            if (t.x + t.width > player.x) forwardTargets.add(t);
+        }
+        forwardTargets.sort((a, b) -> Float.compare(b.x, a.x));
+
+        for (Rectangle target : forwardTargets) {
+            float dist = Math.max(50f, target.x - player.x);
+            float scale = MathUtils.clamp(400f / dist, 0.35f, 2.2f);
+            float scaledW = 48f * scale;
+            float scaledH = target.height * scale;
+            float targetScreenY = 300f + (target.y - eyeY);
+            float targetScreenX = 400f - (scaledW / 2f);
+
+            batch.draw(targetTexture, targetScreenX, targetScreenY, scaledW, scaledH);
         }
 
-        // 3. W 가늠쇠 (반동 recoilOffsetY 반영)
         float sightDrawX = frontSightPos.x - (FRONT_SIGHT_W / 2f) + 138f;
         float sightDrawY = frontSightPos.y - (FRONT_SIGHT_H / 2f) + 140f + recoilOffsetY;
-        batch.draw(
-            frontSightTexture,
-            sightDrawX,
-            sightDrawY,
-            FRONT_SIGHT_W,
-            FRONT_SIGHT_H
-        );
+        batch.draw(frontSightTexture, sightDrawX, sightDrawY, FRONT_SIGHT_W, FRONT_SIGHT_H);
 
-        // 4. 총기 몸체 및 가늠자
         batch.draw(
             gunBodyTexture,
             gunBodyX - (GUN_BODY_WIDTH / 2f),
@@ -241,14 +331,23 @@ public class Main extends ApplicationAdapter {
             GUN_BODY_WIDTH,
             GUN_BODY_HEIGHT
         );
+        batch.end();
+    }
 
+    private void renderHUD() {
+        batch.setProjectionMatrix(uiCamera.combined);
+        batch.begin();
+        font.setColor(0.15f, 0.15f, 0.15f, 1f);
+        font.draw(batch, "[" + stageTitle + "] 명중: " + currentHitCount + " / " + hitsRequired, 25, 575);
+        if (!stageHint.isEmpty()) {
+            font.draw(batch, stageHint, 25, 555);
+        }
         batch.end();
     }
 
     private void renderBreathUI() {
         shapeRenderer.setProjectionMatrix(uiCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-
         shapeRenderer.setColor(0.1f, 0.1f, 0.1f, 0.75f);
         shapeRenderer.rect(30, 30, 204, 18);
 
@@ -272,6 +371,31 @@ public class Main extends ApplicationAdapter {
         batch.end();
     }
 
+    private void renderClearModal() {
+        shapeRenderer.setProjectionMatrix(uiCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0f, 0f, 0f, 0.65f);
+        shapeRenderer.rect(0, 0, 800, 600);
+
+        shapeRenderer.setColor(0.95f, 0.95f, 0.95f, 1f);
+        shapeRenderer.rect(250, 200, 300, 220);
+
+        shapeRenderer.setColor(0.2f, 0.6f, 0.2f, 1f);
+        shapeRenderer.rect(nextStageBtnBounds.x, nextStageBtnBounds.y, nextStageBtnBounds.width, nextStageBtnBounds.height);
+        shapeRenderer.end();
+
+        batch.setProjectionMatrix(uiCamera.combined);
+        batch.begin();
+        font.setColor(Color.BLACK);
+        font.draw(batch, "★ STAGE CLEAR! ★", 335, 380);
+        font.draw(batch, "목표 달성: 5발 적중 완료", 330, 335);
+
+        font.setColor(Color.WHITE);
+        String btnText = nextStageId.isEmpty() ? "GAME COMPLETE" : "NEXT STAGE";
+        font.draw(batch, btnText, 350, 252);
+        batch.end();
+    }
+
     private void renderTargetInspectionModal() {
         shapeRenderer.setProjectionMatrix(uiCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
@@ -292,7 +416,6 @@ public class Main extends ApplicationAdapter {
         font.draw(batch, "[Press E or ESC to Close]", 310, 80);
         batch.end();
 
-        // 표적지에 박힌 탄흔 렌더링
         if (inspectingTargetIndex >= 0 && inspectingTargetIndex < bulletHoles.size) {
             shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
             shapeRenderer.setColor(0.08f, 0.08f, 0.08f, 0.95f);
@@ -306,11 +429,25 @@ public class Main extends ApplicationAdapter {
     }
 
     private void update(float dt) {
-        if (gameOver || dt <= 0) return;
+        if (dt <= 0) return;
 
+        if (stageClear) {
+            if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
+                mousePos.set(Gdx.input.getX(), Gdx.input.getY(), 0);
+                uiCamera.unproject(mousePos, viewport.getScreenX(), viewport.getScreenY(), viewport.getScreenWidth(), viewport.getScreenHeight());
+                if (nextStageBtnBounds.contains(mousePos.x, mousePos.y)) {
+                    if (!nextStageId.isEmpty()) {
+                        loadStage(nextStageId);
+                    }
+                }
+            }
+            return;
+        }
+
+        stateTime += dt;
         if (shootCooldown > 0) shootCooldown -= dt;
         if (recoilOffsetY > 0) {
-            recoilOffsetY = Math.max(0f, recoilOffsetY - 180f * dt);
+            recoilOffsetY = Math.max(0f, recoilOffsetY - stageRecoilRecovery * dt);
         }
 
         if (isInspectingTarget) {
@@ -327,23 +464,35 @@ public class Main extends ApplicationAdapter {
             return;
         }
 
-        if (Gdx.input.isKeyPressed(Input.Keys.Z)) {
-            currentStance = AimStance.PRONE;
-        } else if (Gdx.input.isKeyPressed(Input.Keys.C)) {
-            currentStance = AimStance.CROUCH;
-        } else {
-            currentStance = AimStance.NONE;
+        // 토글 조준
+        if (Gdx.input.isKeyJustPressed(Input.Keys.Z)) {
+            currentStance = (currentStance == AimStance.PRONE) ? AimStance.NONE : AimStance.PRONE;
+        } else if (Gdx.input.isKeyJustPressed(Input.Keys.C)) {
+            currentStance = (currentStance == AimStance.CROUCH) ? AimStance.NONE : AimStance.CROUCH;
+        }
+
+        // 우클릭 서서쏴
+        if (currentStance != AimStance.PRONE && currentStance != AimStance.CROUCH) {
+            if (Gdx.input.isButtonPressed(Input.Buttons.RIGHT)) {
+                currentStance = AimStance.STAND;
+            } else {
+                currentStance = AimStance.NONE;
+            }
         }
 
         if (currentStance != AimStance.NONE) {
             velocityX = 0;
+            motionState = PlayerMotionState.IDLE;
 
             if (Gdx.input.isKeyPressed(Input.Keys.SPACE) && currentBreath > 0) {
                 isHoldingBreath = true;
                 currentBreath = Math.max(0f, currentBreath - 45f * dt);
             } else {
                 isHoldingBreath = false;
-                float recoverRate = (currentStance == AimStance.PRONE) ? 18f : 12f;
+                float recoverRate = 12f;
+                if (currentStance == AimStance.PRONE) recoverRate = 20f;
+                else if (currentStance == AimStance.CROUCH) recoverRate = 16f;
+                else if (currentStance == AimStance.STAND) recoverRate = 12f;
                 currentBreath = Math.min(MAX_BREATH, currentBreath + recoverRate * dt);
             }
 
@@ -360,9 +509,16 @@ public class Main extends ApplicationAdapter {
 
             float exhaustion = (MAX_BREATH - currentBreath) / MAX_BREATH;
             float breathStability = isHoldingBreath ? 0.15f : (1.0f + exhaustion * 3.0f);
-            float stanceStability = (currentStance == AimStance.PRONE) ? 0.45f : 1.0f;
 
-            swayTime += dt * (isHoldingBreath ? 0.7f : (1.6f + exhaustion * 3.8f));
+            float stanceStability = 1.6f;
+            if (currentStance == AimStance.PRONE) {
+                stanceStability = 0.45f;
+            } else if (currentStance == AimStance.CROUCH) {
+                stanceStability = 1.0f;
+            }
+
+            float swayMultiplier = (currentStance == AimStance.STAND) ? 1.4f : 1.0f;
+            swayTime += dt * (isHoldingBreath ? 0.7f : (1.6f + exhaustion * 3.8f)) * swayMultiplier;
 
             float frontSightSwayX = MathUtils.sin(swayTime * 1.5f) * (6.5f * stanceStability * breathStability);
             float bodySwayX = frontSightSwayX * 0.85f;
@@ -398,9 +554,8 @@ public class Main extends ApplicationAdapter {
             frontSightPos.x = targetSightX;
             frontSightPos.y = targetSightY;
 
-            // 좌클릭 사격 처리
             if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT) && shootCooldown <= 0f) {
-                shoot(exhaustion, stanceStability, breathStability);
+                shoot(stanceStability, breathStability);
             }
 
         } else {
@@ -415,18 +570,26 @@ public class Main extends ApplicationAdapter {
 
             velocityX = 0;
             boolean isMoving = false;
-            if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
-                velocityX -= MOVE_SPEED;
+            boolean isRunning = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT) || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
+            float currentMoveSpeed = isRunning ? RUN_SPEED : MOVE_SPEED;
+
+            if (Gdx.input.isKeyPressed(Input.Keys.A)) {
+                velocityX -= currentMoveSpeed;
+                facingLeft = true;
                 isMoving = true;
             }
-            if (Gdx.input.isKeyPressed(Input.Keys.RIGHT)) {
-                velocityX += MOVE_SPEED;
+            if (Gdx.input.isKeyPressed(Input.Keys.D)) {
+                velocityX += currentMoveSpeed;
+                facingLeft = false;
                 isMoving = true;
             }
 
             if (isMoving) {
-                currentBreath = Math.max(0f, currentBreath - 35f * dt);
+                motionState = isRunning ? PlayerMotionState.RUN : PlayerMotionState.WALK;
+                float drain = isRunning ? 55f : 25f;
+                currentBreath = Math.max(0f, currentBreath - drain * dt);
             } else {
+                motionState = PlayerMotionState.IDLE;
                 currentBreath = Math.min(MAX_BREATH, currentBreath + 20f * dt);
             }
 
@@ -442,30 +605,23 @@ public class Main extends ApplicationAdapter {
             moveX(dt);
             moveY(dt);
 
-            camera.position.x = MathUtils.clamp(player.x + player.width / 2f, 400, WORLD_WIDTH - 400);
-            camera.position.y = 300;
+            camera.position.x = MathUtils.clamp(player.x + player.width / 2f, 240, worldWidth - 240);
+            camera.position.y = 180;
             camera.update();
         }
     }
 
-    /** 사격 매커니즘: 가늠쇠 상단 중심 조준점 + 오차 반영 및 표적지 명중 판정 */
-    private void shoot(float exhaustion, float stanceStability, float breathStability) {
+    private void shoot(float stanceStability, float breathStability) {
         shootCooldown = 0.25f;
-        recoilOffsetY = 24f; // 격발 반동
+        recoilOffsetY = stageRecoilPower * (stanceStability * 0.8f);
 
-        // 총소리 재생
         if (shotSound != null) {
             shotSound.play(0.85f);
         }
 
-        // 1. 가늠쇠 상단 중앙 좌표 계산
-        // 렌더링 공식: X_draw = frontSightPos.x - (W / 2) + 138, Y_draw = frontSightPos.y - (H / 2) + 140
-        // 가늠쇠의 X 중심 = X_draw + W/2 = frontSightPos.x + 138
-        // 가늠쇠의 Y 맨 위 = Y_draw + H = frontSightPos.y + (H / 2) + 140
         float tipX = frontSightPos.x + 138f;
         float tipY = frontSightPos.y + (FRONT_SIGHT_H / 2f) + 110f;
 
-        // 2. 오차 범위 계산 (숨을 참으면 오차가 0에 수렴하고, 거칠면 탄착군 분산)
         float spreadRadius = (isHoldingBreath ? 1.5f : 12f) * stanceStability * breathStability;
         float errorX = MathUtils.random(-spreadRadius, spreadRadius);
         float errorY = MathUtils.random(-spreadRadius, spreadRadius);
@@ -473,29 +629,47 @@ public class Main extends ApplicationAdapter {
         float hitX = tipX + errorX;
         float hitY = tipY + errorY;
 
-        // 3. 전방 표적지 피격 검사 (가장 가까운 표적 우선)
-        float eyeY = (currentStance == AimStance.PRONE)
-            ? player.y + player.height * 0.25f
-            : player.y + player.height * 0.55f;
+        float eyeY;
+        if (currentStance == AimStance.PRONE) {
+            eyeY = player.y + player.height * 0.25f;
+        } else if (currentStance == AimStance.CROUCH) {
+            eyeY = player.y + player.height * 0.55f;
+        } else {
+            eyeY = player.y + player.height * 0.85f;
+        }
 
+        Array<Integer> targetIndices = new Array<>();
         for (int i = 0; i < targets.size; i++) {
-            Rectangle t = targets.get(i);
-            if (t.x + t.width > player.x) {
-                float targetW = 32f;
-                float targetH = t.height;
-                float targetScreenX = 400f - (targetW / 2f);
-                float targetScreenY = 300f + (t.y - eyeY);
+            if (targets.get(i).x + targets.get(i).width > player.x) {
+                targetIndices.add(i);
+            }
+        }
+        targetIndices.sort((i1, i2) -> Float.compare(targets.get(i1).x, targets.get(i2).x));
 
-                // 명중 확인
-                if (hitX >= targetScreenX && hitX <= targetScreenX + targetW &&
-                    hitY >= targetScreenY && hitY <= targetScreenY + targetH) {
+        for (int idx : targetIndices) {
+            Rectangle t = targets.get(idx);
+            float dist = Math.max(50f, t.x - player.x);
+            float scale = MathUtils.clamp(400f / dist, 0.35f, 2.2f);
 
-                    // 표적지 내 0.0~1.0 정규화 좌표로 탄흔 저장
-                    float normX = (hitX - targetScreenX) / targetW;
-                    float normY = (hitY - targetScreenY) / targetH;
-                    bulletHoles.get(i).add(new Vector2(normX, normY));
-                    break;
+            float targetW = 32f * scale;
+            float targetH = t.height * scale;
+
+            float targetScreenX = 400f - (targetW / 2f);
+            float targetScreenY = 300f + (t.y - eyeY);
+
+            if (hitX >= targetScreenX && hitX <= targetScreenX + targetW &&
+                hitY >= targetScreenY && hitY <= targetScreenY + targetH) {
+
+                float normX = (hitX - targetScreenX) / targetW;
+                float normY = (hitY - targetScreenY) / targetH;
+                bulletHoles.get(idx).add(new Vector2(normX, normY));
+
+                currentHitCount++;
+                if (currentHitCount >= hitsRequired) {
+                    stageClear = true;
+                    currentStance = AimStance.NONE;
                 }
+                break;
             }
         }
     }
@@ -512,13 +686,18 @@ public class Main extends ApplicationAdapter {
     }
 
     private void moveX(float dt) {
+        if (velocityX == 0) return;
         player.x += velocityX * dt;
+
         for (Rectangle block : blocks) {
             if (!player.overlaps(block)) continue;
-            if (velocityX > 0) player.x = block.x - player.width;
-            else if (velocityX < 0) player.x = block.x + block.width;
+            if (velocityX > 0) {
+                player.x = block.x - player.width;
+            } else if (velocityX < 0) {
+                player.x = block.x + block.width;
+            }
         }
-        player.x = MathUtils.clamp(player.x, 0, WORLD_WIDTH - player.width);
+        player.x = MathUtils.clamp(player.x, 0, worldWidth - player.width);
     }
 
     private void moveY(float dt) {
@@ -528,11 +707,12 @@ public class Main extends ApplicationAdapter {
 
         for (Rectangle block : blocks) {
             if (!player.overlaps(block)) continue;
-            if (dy < 0) {
+
+            if (dy < 0 && (player.y - dy) >= block.y + block.height - 4f) {
                 player.y = block.y + block.height;
                 velocityY = 0;
                 grounded = true;
-            } else if (dy > 0) {
+            } else if (dy > 0 && (player.y - dy + player.height) <= block.y + 4f) {
                 player.y = block.y - player.height;
                 velocityY = 0;
             }
@@ -549,7 +729,11 @@ public class Main extends ApplicationAdapter {
         batch.dispose();
         shapeRenderer.dispose();
         font.dispose();
-        playerTexture.dispose();
+
+        if (idleSheet != null) idleSheet.dispose();
+        if (walkSheet != null) walkSheet.dispose();
+        if (runSheet != null) runSheet.dispose();
+
         blockTexture.dispose();
         targetTexture.dispose();
         gunBodyTexture.dispose();

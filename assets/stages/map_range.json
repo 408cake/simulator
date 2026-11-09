@@ -1,0 +1,35 @@
+{
+  "id": "standard_shooting_range",
+  "name": "육군 표준 야외 실거리 사격장",
+  "width": 2600,
+  "height": 600,
+  "spawnX": 100,
+  "spawnY": 70,
+  "deathPlaneY": -100,
+  "platforms": [
+    { "x": -40, "y": 0, "width": 40, "height": 600 },
+    { "x": 0, "y": 0, "width": 650, "height": 60 },
+    { "x": 120, "y": 60, "width": 90, "height": 18 },
+    { "x": 0, "y": 280, "width": 550, "height": 20 },
+    { "x": 650, "y": 0, "width": 300, "height": 30 },
+    { "x": 950, "y": 0, "width": 400, "height": 110 },
+    { "x": 1350, "y": 0, "width": 300, "height": 70 },
+    { "x": 1650, "y": 0, "width": 450, "height": 170 },
+    { "x": 2100, "y": 0, "width": 450, "height": 220 },
+    { "x": 2450, "y": 0, "width": 150, "height": 380 },
+    { "x": 2600, "y": 0, "width": 40, "height": 600 }
+  ],
+  "targets": [
+    { "id": "target_100m", "x": 1150, "y": 110, "width": 24, "height": 75 },
+    { "id": "target_200m", "x": 1850, "y": 170, "width": 24, "height": 75 },
+    { "id": "target_250m", "x": 2300, "y": 220, "width": 24, "height": 75 }
+  ],
+  "zones": [
+    {
+      "x": 0,
+      "title": "사로 1번",
+      "hint": "C: 앉아쏴 · Z: 누워쏴 · 좌클릭: 사격 · SPACE: 호흡 정지",
+      "detail": "100m, 200m, 250m 표적지를 순서대로 격발하세요."
+    }
+  ]
+}

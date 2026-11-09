@@ -1,0 +1,27 @@
+{
+  "id": "01_testshoot",
+  "name": "01 영점 사격 훈련",
+  "nextStage": "02_movingshoot",
+  "targetHitsRequired": 5,
+  "width": 2600,
+  "height": 600,
+  "spawnX": 100,
+  "spawnY": 100,
+  "recoilPower": 24.0,
+  "recoilRecovery": 180.0,
+  "platforms": [
+    { "x": 0, "y": 0, "width": 1000, "height": 100 },
+    { "x": 1000, "y": 0, "width": 800, "height": 150 },
+    { "x": 1800, "y": 0, "width": 800, "height": 200 },
+    { "x": -40, "y": 0, "width": 40, "height": 600 },
+    { "x": 2600, "y": 0, "width": 40, "height": 600 },
+
+    { "x": 10, "y": 100, "width": 40, "height": 220 },
+    { "x": 250, "y": 100, "width": 60, "height": 70 }
+  ],
+  "targets": [
+    { "id": "target_01", "x": 980, "y": 100, "width": 36, "height": 110 },
+    { "id": "target_02", "x": 1780, "y": 150, "width": 36, "height": 110 }
+  ],
+  "hint": "C: 앉아쏴 · Z: 누워쏴 · 우클릭: 서서쏴 · 표적지에 5발을 명중시키세요."
+}
