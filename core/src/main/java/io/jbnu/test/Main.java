@@ -44,8 +44,8 @@ public class Main extends ApplicationAdapter {
     private float worldWidth = 2600;
     private static final float MOVE_SPEED = 200;
     private static final float RUN_SPEED = 320;
-    private static final float JUMP_SPEED = 650;
-    private static final float BASE_GRAVITY = 1700;
+    private static final float JUMP_SPEED = 500;
+    private static final float BASE_GRAVITY = 2100;
 
     private static final float GUN_BODY_WIDTH = 1011f;
     private static final float GUN_BODY_HEIGHT = 758f;
@@ -61,6 +61,7 @@ public class Main extends ApplicationAdapter {
 
     private enum AimStance { NONE, STAND, CROUCH, PRONE }
     private AimStance currentStance = AimStance.NONE;
+    private boolean wasAimingLastFrame = false;
 
     private SpriteBatch batch;
     private ShapeRenderer shapeRenderer;
@@ -105,7 +106,6 @@ public class Main extends ApplicationAdapter {
     private final Vector3 frontSightPos = new Vector3(400, 300, 0);
 
     private float shootCooldown = 0f;
-    private float recoilOffsetY = 0f;
 
     @Override
     public void create() {
@@ -294,7 +294,7 @@ public class Main extends ApplicationAdapter {
         }
         shapeRenderer.end();
 
-        // 1. 표적지 그리기
+        // 1. 표적지 렌더링
         batch.setProjectionMatrix(uiCamera.combined);
         batch.begin();
 
@@ -304,7 +304,6 @@ public class Main extends ApplicationAdapter {
                 forwardTargetIndices.add(i);
             }
         }
-        // 먼 표적지부터 렌더링 (화면 겹침 방지)
         forwardTargetIndices.sort((i1, i2) -> Float.compare(targets.get(i2).x, targets.get(i1).x));
 
         for (int idx : forwardTargetIndices) {
@@ -337,11 +336,9 @@ public class Main extends ApplicationAdapter {
                     float hy = targetScreenY + hole.y * scaledH;
                     float holeR = Math.max(2.5f, 3.5f * scale);
 
-                    // 탄흔 흰색 외곽선 (표적지 검은 링과 겹쳐도 선명하게 보임)
                     shapeRenderer.setColor(0.95f, 0.95f, 0.95f, 1f);
                     shapeRenderer.circle(hx, hy, holeR + 1.5f);
 
-                    // 탄흔 내부 구멍
                     shapeRenderer.setColor(0.08f, 0.08f, 0.08f, 1f);
                     shapeRenderer.circle(hx, hy, holeR);
                 }
@@ -352,13 +349,13 @@ public class Main extends ApplicationAdapter {
         // 3. 총기 및 가늠쇠 렌더링
         batch.begin();
         float sightDrawX = frontSightPos.x - (FRONT_SIGHT_W / 2f) + 138f;
-        float sightDrawY = frontSightPos.y - (FRONT_SIGHT_H / 2f) + 140f + recoilOffsetY;
+        float sightDrawY = frontSightPos.y - (FRONT_SIGHT_H / 2f) + 140f;
         batch.draw(frontSightTexture, sightDrawX, sightDrawY, FRONT_SIGHT_W, FRONT_SIGHT_H);
 
         batch.draw(
             gunBodyTexture,
             gunBodyX - (GUN_BODY_WIDTH / 2f),
-            gunBodyY - (GUN_BODY_HEIGHT / 2f) + recoilOffsetY,
+            gunBodyY - (GUN_BODY_HEIGHT / 2f),
             GUN_BODY_WIDTH,
             GUN_BODY_HEIGHT
         );
@@ -405,20 +402,15 @@ public class Main extends ApplicationAdapter {
     private void renderClearModal() {
         shapeRenderer.setProjectionMatrix(uiCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-
-        // 어두운 반투명 오버레이 배경
         shapeRenderer.setColor(0f, 0f, 0f, 0.65f);
         shapeRenderer.rect(0, 0, 800, 600);
 
-        // 모달 흰색 카드 박스 (중앙 정렬)
         shapeRenderer.setColor(0.96f, 0.96f, 0.96f, 1f);
         shapeRenderer.rect(220, 190, 360, 230);
 
-        // [재시작] 버튼 (오렌지/브라운 톤)
         shapeRenderer.setColor(0.85f, 0.45f, 0.15f, 1f);
         shapeRenderer.rect(restartBtnBounds.x, restartBtnBounds.y, restartBtnBounds.width, restartBtnBounds.height);
 
-        // [다음 스테이지] 버튼 (초록 톤)
         shapeRenderer.setColor(0.2f, 0.65f, 0.25f, 1f);
         shapeRenderer.rect(nextStageBtnBounds.x, nextStageBtnBounds.y, nextStageBtnBounds.width, nextStageBtnBounds.height);
         shapeRenderer.end();
@@ -430,14 +422,13 @@ public class Main extends ApplicationAdapter {
         font.draw(batch, "목표 달성: " + hitsRequired + "발 적중 완료", 325, 340);
 
         font.setColor(Color.WHITE);
-        // 재시작 텍스트
         font.draw(batch, "RESTART", restartBtnBounds.x + 36, restartBtnBounds.y + 30);
 
-        // 다음 스테이지 / 완료 텍스트
         String nextBtnText = nextStageId.isEmpty() ? "FINISH" : "NEXT";
         font.draw(batch, nextBtnText, nextStageBtnBounds.x + 48, nextStageBtnBounds.y + 30);
         batch.end();
     }
+
     private void renderTargetInspectionModal() {
         shapeRenderer.setProjectionMatrix(uiCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
@@ -464,16 +455,30 @@ public class Main extends ApplicationAdapter {
                 float hx = modalTargetX + hole.x * modalTargetW;
                 float hy = modalTargetY + hole.y * modalTargetH;
 
-                // 종이 찢김 흰색 외곽 테두리 (반경 7px)
                 shapeRenderer.setColor(0.95f, 0.95f, 0.95f, 1f);
                 shapeRenderer.circle(hx, hy, 7.5f);
 
-                // 탄흔 중심 암적색/검정 구멍 (반경 5.5px)
                 shapeRenderer.setColor(0.1f, 0.1f, 0.1f, 1f);
                 shapeRenderer.circle(hx, hy, 5.5f);
             }
             shapeRenderer.end();
         }
+    }
+
+    /** gun_body 오른쪽 안쪽 위치로 OS 마우스 커서를 동기화 */
+    private void warpMouseToGunRight() {
+        // gunBody 중심 기준 오른쪽에서 약 140px 안쪽, 조작부 높이 Y+60px
+        float targetUiX = gunBodyX + (GUN_BODY_WIDTH / 2f) - 140f;
+        float targetUiY = gunBodyY + 60f;
+
+        Vector3 screenCoords = new Vector3(targetUiX, targetUiY, 0);
+        uiCamera.project(screenCoords, viewport.getScreenX(), viewport.getScreenY(),
+            viewport.getScreenWidth(), viewport.getScreenHeight());
+
+        int mouseScreenX = (int) screenCoords.x;
+        int mouseScreenY = (int) (Gdx.graphics.getHeight() - screenCoords.y);
+
+        Gdx.input.setCursorPosition(mouseScreenX, mouseScreenY);
     }
 
     private void update(float dt) {
@@ -484,13 +489,11 @@ public class Main extends ApplicationAdapter {
                 mousePos.set(Gdx.input.getX(), Gdx.input.getY(), 0);
                 uiCamera.unproject(mousePos, viewport.getScreenX(), viewport.getScreenY(), viewport.getScreenWidth(), viewport.getScreenHeight());
 
-                // 1. 재시작 버튼 클릭 -> 현재 스테이지 다시 로드
                 if (restartBtnBounds.contains(mousePos.x, mousePos.y)) {
                     loadStage(currentStageId);
                     return;
                 }
 
-                // 2. 다음 스테이지 버튼 클릭 -> 다음 스테이지 로드
                 if (nextStageBtnBounds.contains(mousePos.x, mousePos.y)) {
                     if (!nextStageId.isEmpty()) {
                         loadStage(nextStageId);
@@ -503,9 +506,6 @@ public class Main extends ApplicationAdapter {
 
         stateTime += dt;
         if (shootCooldown > 0) shootCooldown -= dt;
-        if (recoilOffsetY > 0) {
-            recoilOffsetY = Math.max(0f, recoilOffsetY - stageRecoilRecovery * dt);
-        }
 
         if (isInspectingTarget) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.E) || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
@@ -536,49 +536,56 @@ public class Main extends ApplicationAdapter {
             }
         }
 
+        boolean isAimingNow = (currentStance != AimStance.NONE);
+        // 조준 진입 첫 프레임: 마우스를 총기 오른쪽 위치로 이동
+        if (isAimingNow && !wasAimingLastFrame) {
+            warpMouseToGunRight();
+        }
+        wasAimingLastFrame = isAimingNow;
+
         if (currentStance != AimStance.NONE) {
             velocityX = 0;
             motionState = PlayerMotionState.IDLE;
 
-            // 숨참기 로직: SPACE 누를 시 소모 속도 및 떨림 감쇠 완화
+            // 숨참기 로직
             if (Gdx.input.isKeyPressed(Input.Keys.SPACE) && currentBreath > 0) {
                 isHoldingBreath = true;
                 currentBreath = Math.max(0f, currentBreath - 35f * dt);
             } else {
                 isHoldingBreath = false;
-                float recoverRate = 12f;
+                float recoverRate = 0f;
                 if (currentStance == AimStance.PRONE) recoverRate = 20f;
                 else if (currentStance == AimStance.CROUCH) recoverRate = 16f;
                 else if (currentStance == AimStance.STAND) recoverRate = 12f;
                 currentBreath = Math.min(MAX_BREATH, currentBreath + recoverRate * dt);
             }
 
-            mousePos.set(Gdx.input.getX(), Gdx.input.getY(), 0);
-            uiCamera.unproject(mousePos, viewport.getScreenX(), viewport.getScreenY(), viewport.getScreenWidth(), viewport.getScreenHeight());
+            // 마우스 상대 이동량(Delta)을 누적하여 에임 이동
+            float sensitivity = 0.8f;
+            aimBaseX += Gdx.input.getDeltaX() * sensitivity;
+            aimBaseY -= Gdx.input.getDeltaY() * sensitivity;
 
-            aimBaseX = MathUtils.lerp(aimBaseX, mousePos.x, 0.18f);
-            aimBaseY = MathUtils.lerp(aimBaseY, mousePos.y, 0.18f);
+            aimBaseX = MathUtils.clamp(aimBaseX, 150f, 650f);
+            aimBaseY = MathUtils.clamp(aimBaseY, 0f, 500f);
 
             float exhaustion = (MAX_BREATH - currentBreath) / MAX_BREATH;
+            float breathStability = isHoldingBreath ? 0.45f : (1.4f + exhaustion * 2.5f);
 
-            // 숨참기 안정성 배율: 0.15f -> 0.45f로 상향 조정 (숨을 참아도 완전히 정지하지 않고 적절한 미세 떨림 유지)
-            float breathStability = isHoldingBreath ? 0.45f : (1.0f + exhaustion * 2.8f);
-
-            float stanceStability = 1.5f;
+            float stanceStability = 0.8f;
             if (currentStance == AimStance.PRONE) {
-                stanceStability = 0.55f;
+                stanceStability = 0.3f;
             } else if (currentStance == AimStance.CROUCH) {
-                stanceStability = 1.0f;
+                stanceStability = 0.7f;
             }
 
             float swayMultiplier = (currentStance == AimStance.STAND) ? 1.3f : 1.0f;
-            // 숨참기 중 진동 주기 속도도 0.95f로 적당히 유지
-            swayTime += dt * (isHoldingBreath ? 0.95f : (1.6f + exhaustion * 3.5f)) * swayMultiplier;
+            float swaySpeed = isHoldingBreath ? 0.95f : (2.4f + exhaustion * 3.5f);
+            swayTime += dt * swaySpeed * swayMultiplier;
 
-            // 가늠쇠 및 총기 흔들림 폭 계산
-            float frontSightSwayX = MathUtils.sin(swayTime * 1.5f) * (7.5f * stanceStability * breathStability);
+            // 가늠쇠 좌우 흔들림 및 가늠자 호흡 박동
+            float frontSightSwayX = MathUtils.sin(swayTime * 1.5f) * (14.0f * stanceStability * breathStability);
             float bodySwayX = frontSightSwayX * 0.85f;
-            float bodySwayY = MathUtils.cos(swayTime * 1.8f) * (4.5f * stanceStability * breathStability);
+            float bodySwayY = MathUtils.cos(swayTime * 1.8f) * (9.0f * stanceStability * breathStability);
 
             float minVisibleMarginX = 150f;
             float minX = -(GUN_BODY_WIDTH / 2f) + minVisibleMarginX;
@@ -609,6 +616,9 @@ public class Main extends ApplicationAdapter {
 
             frontSightPos.x = targetSightX;
             frontSightPos.y = targetSightY;
+
+            // 조준 상태 중 마우스 위치를 gun_body 우측 안쪽에 유지
+            warpMouseToGunRight();
 
             if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT) && shootCooldown <= 0f) {
                 shoot(stanceStability, breathStability);
@@ -667,21 +677,33 @@ public class Main extends ApplicationAdapter {
 
     private void shoot(float stanceStability, float breathStability) {
         shootCooldown = 0.25f;
-        recoilOffsetY = stageRecoilPower * (stanceStability * 0.8f);
+
+        // 반동: aimBase에 누적
+        float kickY = MathUtils.random(15.0f, 35.0f) * stanceStability;
+        float kickX = MathUtils.random(-5.0f, 5.0f) * stanceStability;
+        aimBaseY += kickY;
+        aimBaseX += kickX;
+
+        // 반동 직후 즉시 gunBody 위치 클램핑 및 마우스 위치 갱신 (마우스가 반동 튄 위치로 따라감)
+        float minVisibleMarginX = 150f;
+        float minX = -(GUN_BODY_WIDTH / 2f) + minVisibleMarginX;
+        float maxX = 800f + (GUN_BODY_WIDTH / 2f) - minVisibleMarginX;
+        float minVisibleMarginY = 120f;
+        float minY = -(GUN_BODY_HEIGHT / 2f) + minVisibleMarginY;
+        float maxY = 420f;
+
+        gunBodyX = MathUtils.clamp(aimBaseX, minX, maxX);
+        gunBodyY = MathUtils.clamp(aimBaseY + bodyOffsetY, minY, maxY);
+        warpMouseToGunRight();
 
         if (shotSound != null) {
             shotSound.play(0.85f);
         }
 
-        // 가늠쇠 최상단 끝점 정확한 계산
-        // 렌더링 공식: sightDrawX = frontSightPos.x - (W/2) + 138, sightDrawY = frontSightPos.y - (H/2) + 140
-        // 가늠쇠 중심 X: sightDrawX + (W/2) = frontSightPos.x + 138
-        // 가늠쇠 상단 Y: sightDrawY + H = frontSightPos.y + (H/2) + 140
+        // 가늠쇠 상단 끝점 계산
         float tipX = frontSightPos.x + 138f;
         float tipY = frontSightPos.y + (FRONT_SIGHT_H / 2f) + 120f;
 
-
-        // 미세 오차
         float spreadRadius = 0.6f * stanceStability * breathStability;
         float errorX = MathUtils.random(-spreadRadius, spreadRadius);
         float errorY = MathUtils.random(-spreadRadius, spreadRadius);
@@ -711,13 +733,11 @@ public class Main extends ApplicationAdapter {
             float dist = Math.max(50f, t.x - player.x);
             float scale = MathUtils.clamp(400f / dist, 0.4f, 2.5f);
 
-            // renderFirstPersonView()와 완전히 동일한 크기 및 위치 사용
             float targetW = 56f * scale;
             float targetH = t.height * scale;
             float targetScreenX = 400f - (targetW / 2f);
             float targetScreenY = 300f + (t.y - eyeY);
 
-            // 명중 판정 (타격점이 표적지 사각형 내부인지 검사)
             if (hitX >= targetScreenX && hitX <= targetScreenX + targetW &&
                 hitY >= targetScreenY && hitY <= targetScreenY + targetH) {
 
