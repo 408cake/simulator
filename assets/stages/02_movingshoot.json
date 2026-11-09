@@ -14,7 +14,6 @@
   ],
   "targets": [
     { "id": "target_01", "x": 1200, "y": 60, "width": 24, "height": 75 },
-    { "id": "target_02", "x": 2000, "y": 60, "width": 24, "height": 75 }
   ],
   "hint": "이동 후 정지 사격 훈련"
 }
