@@ -1,6 +1,6 @@
 {
   "id": "01_testshoot",
-  "name": "01 영점 사격 훈련",
+  "name": "",
   "nextStage": "02_movingshoot",
   "targetHitsRequired": 4,
   "width": 2600,
@@ -26,5 +26,5 @@
   "targets": [
     { "id": "target_01", "x": 930, "y": 145, "width": 36, "height": 110 },
   ],
-  "hint": "C: 앉아쏴 · Z: 누워쏴 · 우클릭: 서서쏴 · 4발 이상 탄착군을 형성하세요."
+  "hint": ""
 }

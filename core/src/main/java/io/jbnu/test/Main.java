@@ -3,6 +3,7 @@ package io.jbnu.test;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.audio.Music;
 import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -123,10 +124,17 @@ public class Main extends ApplicationAdapter {
     private IntroPhase introPhase = IntroPhase.FADE_IN;
 
     private float introTimer = 0f;
-    private static final float FADE_IN_TIME = 0.8f;
-    private static final float HOLD_TIME = 1.2f;
-    private static final float FADE_OUT_TIME = 0.8f;
+    private static final float FADE_IN_TIME = 1.2f;
+    private static final float HOLD_TIME = 2.4f;
+    private static final float FADE_OUT_TIME = 1.2f;
     private float logoAlpha = 0f;
+    private Music introMusic;
+
+    // 일시정지 제어
+    private boolean isPaused = false;
+    private final Rectangle pauseResumeBtn = new Rectangle(320, 240, 160, 42);
+    private final Rectangle pauseRestartBtn = new Rectangle(320, 180, 160, 42);
+    private final Rectangle pauseExitBtn = new Rectangle(320, 120, 160, 42);
 
     private String currentStageId = "01_testshoot";
     private String nextStageId = "";
@@ -135,12 +143,13 @@ public class Main extends ApplicationAdapter {
     private boolean stageClear = false;
     private boolean isPlayerDead = false;
 
+    // 타이머 제어 (-1이면 시간제한 없음)
     private static final float STAGE_TIME_LIMIT = 75.0f;
-    private float stageTimer = STAGE_TIME_LIMIT;
+    private float stageTimer = -1f;
     private boolean isTimeOver = false;
 
     private final IntArray targetsRequiredHits = new IntArray();
-    private int maxAmmo = 18;
+    private int maxAmmo = 5;
     private int bulletsLeft = maxAmmo;
 
     private final Array<CombatDrone> drones = new Array<>();
@@ -182,6 +191,7 @@ public class Main extends ApplicationAdapter {
     private BitmapFont font;
 
     private Texture bgTexture;
+    private Texture stage3BgTexture;
     private Texture idleSheet, walkSheet, runSheet;
     private Animation<TextureRegion> idleAnim;
     private Animation<TextureRegion> walkAnim;
@@ -191,7 +201,10 @@ public class Main extends ApplicationAdapter {
 
     private Texture blockTexture, targetTexture;
     private Texture gunBodyTexture, frontSightTexture;
+
     private Sound shotSound;
+    private Sound droneSound;
+    private long droneSoundId = -1;
 
     private OrthographicCamera camera;
     private FitViewport viewport;
@@ -237,23 +250,29 @@ public class Main extends ApplicationAdapter {
         if (Gdx.files.internal("logo_engine.png").exists()) {
             introLogos.add(new Texture(Gdx.files.internal("logo_engine.png")));
         }
-        if (introLogos.size == 0) {
-            gameState = GameState.GAMEPLAY;
+
+        if (Gdx.files.internal("intro.mp3").exists()) {
+            introMusic = Gdx.audio.newMusic(Gdx.files.internal("intro.mp3"));
+        } else if (Gdx.files.internal("intro.wav").exists()) {
+            introMusic = Gdx.audio.newMusic(Gdx.files.internal("intro.wav"));
         }
 
-        FreeTypeFontGenerator generator = new FreeTypeFontGenerator(Gdx.files.internal("neodgm.ttf"));
-        FreeTypeFontParameter parameter = new FreeTypeFontParameter();
-        parameter.size = 18;
-        parameter.color = Color.WHITE;
-        parameter.characters = FreeTypeFontGenerator.DEFAULT_CHARS
-            + "가각간갇갈갉갊감갑값갓갔강갖갗같갚갛개객갠갤갬갭갯갰갱갸갹갼걀걈걉걋걍걔걘걜거걱건걷걸걺검겁것겄겅겁게겐겔겜겝겟겠겡겨격겪견겯결겸겹겻겼경곁계곈곌곕곗고곡곤곧골곪곬곯곰곱곳공곶과곽관괄괆괌괍왓광괘괜괄괨괩괬굉괴괵괸괼굄굅귓굉교굔굘굠굡굣구국군굳굴굵굶굻굼굽굿궁궂궈궉권궐궤궤궤귀귁귄귈귐귑귓규균귤그극근귿글긁금급긋긍긔기긱긴긷길긺김깁깃깅깆깊"
-            + "사격표적확인조준호흡거리발자세앉아쏴누워쏴완료합격실패재시작다음단계점수적중잔여탄약검사탄착군안내이동남음풀고세요닫기다시시도영점기준원밀집형성이상원격모니터실시간관측원거리전환이전다음초과시간제한드론경고사망격추피격"
-            + "★/[]: #1234567890.<>";
-
-        font = generator.generateFont(parameter);
-        generator.dispose();
-
+        if (introLogos.size == 0) {
+            gameState = GameState.GAMEPLAY;
+        } else if (introMusic != null) {
+            introMusic.setLooping(false);
+            introMusic.play();
+        }
+        font = new BitmapFont(Gdx.files.internal("font.fnt"));
+        font.getData().setScale(0.20f);
+        font.getRegion().getTexture().setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
         bgTexture = new Texture(Gdx.files.internal("01_background.png"));
+
+        if (Gdx.files.internal("03_background.png").exists()) {
+            stage3BgTexture = new Texture(Gdx.files.internal("03_background.png"));
+        } else {
+            stage3BgTexture = bgTexture;
+        }
 
         idleSheet = new Texture(Gdx.files.internal("Idle.png"));
         walkSheet = new Texture(Gdx.files.internal("Walk.png"));
@@ -293,6 +312,12 @@ public class Main extends ApplicationAdapter {
             shot2Anim = new Animation<>(0.07f, s2[0]);
         }
 
+        if (Gdx.files.internal("drone.mp3").exists()) {
+            droneSound = Gdx.audio.newSound(Gdx.files.internal("drone.mp3"));
+        } else if (Gdx.files.internal("drone.wav").exists()) {
+            droneSound = Gdx.audio.newSound(Gdx.files.internal("drone.wav"));
+        }
+
         if (Gdx.files.internal("shot.mp3").exists()) {
             shotSound = Gdx.audio.newSound(Gdx.files.internal("shot.mp3"));
         } else if (Gdx.files.internal("shot.wav").exists()) {
@@ -307,15 +332,30 @@ public class Main extends ApplicationAdapter {
         loadStage("01_testshoot");
     }
 
+    private boolean isStage3() {
+        return currentStageId.contains("03") || currentStageId.contains("drone") || drones.size > 0;
+    }
+
+    private void stopDroneSound() {
+        if (droneSound != null && droneSoundId != -1) {
+            droneSound.stop(droneSoundId);
+            droneSoundId = -1;
+        }
+    }
+
     public void triggerPlayerDeath() {
         if (!stageClear && !isPlayerDead) {
             isPlayerDead = true;
+            stopDroneSound();
             currentStance = AimStance.NONE;
             isInspectingTarget = true;
         }
     }
 
     public void loadStage(String stageId) {
+        stopDroneSound();
+        isPaused = false;
+
         String path = "stages/" + stageId + ".json";
         if (!Gdx.files.internal(path).exists()) {
             Gdx.app.error("StageLoader", "파일을 찾을 수 없습니다: " + path);
@@ -329,12 +369,18 @@ public class Main extends ApplicationAdapter {
         worldWidth = root.getFloat("width", 2600f);
         stageHint = root.getString("hint", "");
 
-        maxAmmo = root.getInt("maxAmmo", 18);
+        // 1단계는 5발 제한, 그 외 스테이지는 JSON 파싱(기본 18발)
+        if (currentStageId.contains("01")) {
+            maxAmmo = 5;
+            stageTimer = -1f; // 1단계는 시간제한 없음
+        } else {
+            maxAmmo = root.getInt("maxAmmo", 18);
+            stageTimer = root.getFloat("timeLimit", STAGE_TIME_LIMIT);
+        }
+
         bulletsLeft = maxAmmo;
         stageClear = false;
         isPlayerDead = false;
-
-        stageTimer = STAGE_TIME_LIMIT;
         isTimeOver = false;
 
         currentStance = AimStance.NONE;
@@ -370,18 +416,21 @@ public class Main extends ApplicationAdapter {
 
         drones.clear();
         JsonValue drList = root.get("drones");
-        if (drList != null) {
-            for (JsonValue d = drList.child; d != null; d = d.next) {
-                drones.add(new CombatDrone(
-                    d.getFloat("x"), d.getFloat("y"),
-                    d.getFloat("minX", d.getFloat("x") - 250f),
-                    d.getFloat("maxX", d.getFloat("x") + 250f),
-                    d.getFloat("minY", 160f),
-                    d.getFloat("maxY", 310f)
-                ));
-            }
+        if (drList != null && drList.child != null) {
+            JsonValue d = drList.child;
+            drones.add(new CombatDrone(
+                d.getFloat("x"), d.getFloat("y"),
+                d.getFloat("minX", d.getFloat("x") - 250f),
+                d.getFloat("maxX", d.getFloat("x") + 250f),
+                d.getFloat("minY", 160f),
+                d.getFloat("maxY", 310f)
+            ));
         } else if (stageId.contains("03") || stageId.contains("drone")) {
             drones.add(new CombatDrone(1100, 240, 700, 1500, 160, 310));
+        }
+
+        if (drones.size > 0 && droneSound != null) {
+            droneSoundId = droneSound.loop(0.45f);
         }
     }
 
@@ -395,16 +444,17 @@ public class Main extends ApplicationAdapter {
             return;
         }
 
-        update(dt);
+        if (!isPaused) {
+            update(dt);
+        } else {
+            handlePauseInput();
+        }
 
         ScreenUtils.clear(0.85f, 0.9f, 0.95f, 1f);
         viewport.apply();
 
         if (currentStance != AimStance.NONE) {
             renderFirstPersonView();
-            if (targets.size >= 3) {
-                renderLiveSpottingMonitor();
-            }
             renderBreathUI();
         } else {
             renderSideView();
@@ -415,13 +465,88 @@ public class Main extends ApplicationAdapter {
         if (isInspectingTarget) {
             renderTargetInspectionModal();
         }
+
+        if (isPaused) {
+            renderPauseMenu();
+        }
+    }
+
+    private void handlePauseInput() {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+            isPaused = false;
+            return;
+        }
+
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
+            mousePos.set(Gdx.input.getX(), Gdx.input.getY(), 0);
+            uiCamera.unproject(mousePos, viewport.getScreenX(), viewport.getScreenY(), viewport.getScreenWidth(), viewport.getScreenHeight());
+
+            if (pauseResumeBtn.contains(mousePos.x, mousePos.y)) {
+                isPaused = false;
+            } else if (pauseRestartBtn.contains(mousePos.x, mousePos.y)) {
+                isPaused = false;
+                loadStage(currentStageId);
+            } else if (pauseExitBtn.contains(mousePos.x, mousePos.y)) {
+                Gdx.app.exit();
+            }
+        }
+    }
+
+    private void renderPauseMenu() {
+        shapeRenderer.setProjectionMatrix(uiCamera.combined);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0f, 0f, 0f, 0.82f);
+        shapeRenderer.rect(0, 0, 800, 600);
+
+        shapeRenderer.setColor(0.12f, 0.16f, 0.22f, 0.95f);
+        shapeRenderer.rect(90, 310, 620, 200);
+
+        shapeRenderer.setColor(0.2f, 0.5f, 0.85f, 1f);
+        shapeRenderer.rect(pauseResumeBtn.x, pauseResumeBtn.y, pauseResumeBtn.width, pauseResumeBtn.height);
+
+        shapeRenderer.setColor(0.85f, 0.45f, 0.15f, 1f);
+        shapeRenderer.rect(pauseRestartBtn.x, pauseRestartBtn.y, pauseRestartBtn.width, pauseRestartBtn.height);
+
+        shapeRenderer.setColor(0.8f, 0.2f, 0.2f, 1f);
+        shapeRenderer.rect(pauseExitBtn.x, pauseExitBtn.y, pauseExitBtn.width, pauseExitBtn.height);
+        shapeRenderer.end();
+
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapeRenderer.setColor(0.35f, 0.65f, 0.95f, 0.9f);
+        shapeRenderer.rect(90, 310, 620, 200);
+        shapeRenderer.end();
+        Gdx.gl.glLineWidth(1f);
+
+        batch.setProjectionMatrix(uiCamera.combined);
+        batch.begin();
+        font.setColor(Color.WHITE);
+        font.draw(batch, "=== 일시정지 ===", 345, 545);
+
+        font.setColor(new Color(0.95f, 0.85f, 0.2f, 1f));
+        font.draw(batch, "서서쏴 - 마우스 우클릭 , 앉아쏴 - C , 엎드려쏴 - Z", 170, 480);
+
+        font.setColor(new Color(0.85f, 0.95f, 1.0f, 1f));
+        font.draw(batch, "각 자세별 반동제어와 호흡회복속도가 다릅니다. 잘 이용하세요!", 135, 440);
+
+        font.setColor(new Color(0.4f, 0.95f, 0.5f, 1f));
+        font.draw(batch, "처음 맞힌 곳 기준으로 탄착군을 형성하세요!", 210, 400);
+
+        font.setColor(new Color(0.85f, 0.95f, 1.0f, 1f));
+        font.draw(batch, "E키를 누른 후, 화살표를 이용하여 표적지를 확인할 수 있습니다.", 125, 360);
+
+        font.setColor(Color.WHITE);
+        font.draw(batch, "계속하기", pauseResumeBtn.x + 46, pauseResumeBtn.y + 27);
+        font.draw(batch, "다시시작", pauseRestartBtn.x + 46, pauseRestartBtn.y + 27);
+        font.draw(batch, "게임 종료", pauseExitBtn.x + 46, pauseExitBtn.y + 27);
+        batch.end();
     }
 
     private void updateIntro(float dt) {
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) ||
             Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE) ||
             Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
-            nextLogoOrStartGame();
+            finishIntro();
             return;
         }
 
@@ -454,10 +579,17 @@ public class Main extends ApplicationAdapter {
         }
     }
 
+    private void finishIntro() {
+        if (introMusic != null && introMusic.isPlaying()) {
+            introMusic.stop();
+        }
+        gameState = GameState.GAMEPLAY;
+    }
+
     private void nextLogoOrStartGame() {
         currentLogoIndex++;
         if (currentLogoIndex >= introLogos.size) {
-            gameState = GameState.GAMEPLAY;
+            finishIntro();
         } else {
             introPhase = IntroPhase.FADE_IN;
             introTimer = 0f;
@@ -503,11 +635,13 @@ public class Main extends ApplicationAdapter {
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
 
+        Texture curBg = (isStage3() && stage3BgTexture != null) ? stage3BgTexture : bgTexture;
+
         float bgHeight = 360f;
-        float bgScale = bgHeight / bgTexture.getHeight();
-        float bgWidth = bgTexture.getWidth() * bgScale;
+        float bgScale = bgHeight / curBg.getHeight();
+        float bgWidth = curBg.getWidth() * bgScale;
         for (float x = 0; x < worldWidth; x += bgWidth) {
-            batch.draw(bgTexture, x, 0, bgWidth, bgHeight);
+            batch.draw(curBg, x, 0, bgWidth, bgHeight);
         }
 
         for (Rectangle block : blocks) {
@@ -549,9 +683,6 @@ public class Main extends ApplicationAdapter {
         if (nearIdx != -1 && !isInspectingTarget) {
             font.setColor(Color.BLACK);
             font.draw(batch, "[E 키] 표적지 " + (nearIdx + 1) + " 확인", targets.get(nearIdx).x - 20, targets.get(nearIdx).y + targets.get(nearIdx).height + 25);
-        } else if (player.x < 300f && !isInspectingTarget && targets.size > 0) {
-            font.setColor(new Color(0.1f, 0.4f, 0.8f, 1f));
-            font.draw(batch, "[E 키] 사격 모니터 점검", player.x - 20, player.y + player.height + 25);
         }
         batch.end();
 
@@ -581,23 +712,33 @@ public class Main extends ApplicationAdapter {
             eyeY = player.y + player.height * 0.85f;
         }
 
-        Array<Rectangle> forwardBlocks = new Array<>();
-        for (Rectangle b : blocks) {
-            if (b.x + b.width > player.x) forwardBlocks.add(b);
-        }
-        forwardBlocks.sort((a, b) -> Float.compare(b.x, a.x));
+        if (isStage3() && stage3BgTexture != null) {
+            batch.setProjectionMatrix(uiCamera.combined);
+            batch.begin();
+            float bgW = 800f;
+            float bgH = 600f;
+            float bgOffsetY = (300f - eyeY) * 0.5f;
+            batch.draw(stage3BgTexture, 0, bgOffsetY, bgW, bgH);
+            batch.end();
+        } else {
+            Array<Rectangle> forwardBlocks = new Array<>();
+            for (Rectangle b : blocks) {
+                if (b.x + b.width > player.x) forwardBlocks.add(b);
+            }
+            forwardBlocks.sort((a, b) -> Float.compare(b.x, a.x));
 
-        shapeRenderer.setProjectionMatrix(uiCamera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            shapeRenderer.setProjectionMatrix(uiCamera.combined);
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
 
-        for (Rectangle b : forwardBlocks) {
-            float dist = Math.max(1f, b.x - player.x);
-            float depthAlpha = MathUtils.clamp(1f - (dist / (worldWidth - player.x)), 0.25f, 0.95f);
-            shapeRenderer.setColor(0.35f * depthAlpha, 0.38f * depthAlpha, 0.42f * depthAlpha, 1f);
-            float screenY = 300f + (b.y - eyeY);
-            shapeRenderer.rect(0, screenY, 800, b.height);
+            for (Rectangle b : forwardBlocks) {
+                float dist = Math.max(1f, b.x - player.x);
+                float depthAlpha = MathUtils.clamp(1f - (dist / (worldWidth - player.x)), 0.25f, 0.95f);
+                shapeRenderer.setColor(0.35f * depthAlpha, 0.38f * depthAlpha, 0.42f * depthAlpha, 1f);
+                float screenY = 300f + (b.y - eyeY);
+                shapeRenderer.rect(0, screenY, 800, b.height);
+            }
+            shapeRenderer.end();
         }
-        shapeRenderer.end();
 
         batch.setProjectionMatrix(uiCamera.combined);
         batch.begin();
@@ -613,9 +754,9 @@ public class Main extends ApplicationAdapter {
         for (int idx : forwardTargetIndices) {
             Rectangle target = targets.get(idx);
             float dist = Math.max(50f, target.x - player.x);
-            float scale = MathUtils.clamp(400f / dist, 0.3f, 2.5f);
-            float scaledW = 56f * scale;
-            float scaledH = target.height * scale;
+            float scale = MathUtils.clamp(400f / dist, 0.015f, 2.5f);
+            float scaledW = Math.max(2f, 56f * scale);
+            float scaledH = Math.max(4f, target.height * scale);
             float targetScreenY = 300f + (target.y - eyeY);
             float targetScreenX = 400f - (scaledW / 2f);
 
@@ -648,9 +789,9 @@ public class Main extends ApplicationAdapter {
             for (int idx : forwardTargetIndices) {
                 Rectangle target = targets.get(idx);
                 float dist = Math.max(50f, target.x - player.x);
-                float scale = MathUtils.clamp(400f / dist, 0.3f, 2.5f);
-                float scaledW = 56f * scale;
-                float scaledH = target.height * scale;
+                float scale = MathUtils.clamp(400f / dist, 0.015f, 2.5f);
+                float scaledW = Math.max(2f, 56f * scale);
+                float scaledH = Math.max(4f, target.height * scale);
                 float targetScreenY = 300f + (target.y - eyeY);
                 float targetScreenX = 400f - (scaledW / 2f);
 
@@ -658,10 +799,10 @@ public class Main extends ApplicationAdapter {
                     for (Vector2 hole : bulletHoles.get(idx)) {
                         float hx = targetScreenX + hole.x * scaledW;
                         float hy = targetScreenY + hole.y * scaledH;
-                        float holeR = Math.max(2.0f, 3.5f * scale);
+                        float holeR = Math.max(1.0f, 3.5f * scale);
 
                         shapeRenderer.setColor(0.95f, 0.95f, 0.95f, 1f);
-                        shapeRenderer.circle(hx, hy, holeR + 1.2f);
+                        shapeRenderer.circle(hx, hy, holeR + 0.8f);
 
                         shapeRenderer.setColor(0.08f, 0.08f, 0.08f, 1f);
                         shapeRenderer.circle(hx, hy, holeR);
@@ -686,86 +827,48 @@ public class Main extends ApplicationAdapter {
         batch.end();
     }
 
-    private void renderLiveSpottingMonitor() {
-        int remoteIdx = 2;
-        if (targets.size <= remoteIdx) return;
-
-        float monX = 640f;
-        float monY = 410f;
-        float monW = 140f;
-        float monH = 170f;
-
-        shapeRenderer.setProjectionMatrix(uiCamera.combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(0.05f, 0.08f, 0.12f, 0.85f);
-        shapeRenderer.rect(monX - 6, monY - 26, monW + 12, monH + 34);
-        shapeRenderer.end();
-
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-        Gdx.gl.glLineWidth(2f);
-        shapeRenderer.setColor(0.2f, 0.7f, 1.0f, 0.9f);
-        shapeRenderer.rect(monX - 6, monY - 26, monW + 12, monH + 34);
-        shapeRenderer.end();
-        Gdx.gl.glLineWidth(1f);
-
-        batch.setProjectionMatrix(uiCamera.combined);
-        batch.begin();
-        batch.draw(targetTexture, monX, monY, monW, monH);
-        font.setColor(new Color(0.3f, 0.85f, 1.0f, 1f));
-        font.draw(batch, "[T3 관측경]", monX + 18, monY + monH + 20);
-        batch.end();
-
-        Array<Vector2> holes = bulletHoles.get(remoteIdx);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        for (int i = 0; i < holes.size; i++) {
-            Vector2 h = holes.get(i);
-            float hx = monX + h.x * monW;
-            float hy = monY + h.y * monH;
-
-            shapeRenderer.setColor(1f, 0.2f, 0.2f, 1f);
-            shapeRenderer.circle(hx, hy, 4.5f);
-            shapeRenderer.setColor(0.1f, 0.1f, 0.1f, 1f);
-            shapeRenderer.circle(hx, hy, 2.5f);
-        }
-        shapeRenderer.end();
-    }
-
     private void renderHUD() {
         batch.setProjectionMatrix(uiCamera.combined);
         batch.begin();
         font.setColor(0.15f, 0.15f, 0.15f, 1f);
 
-        String timeStr = String.format("%.1f", Math.max(0f, stageTimer));
-        Color timeColor = (stageTimer <= 5.0f) ? new Color(0.85f, 0.1f, 0.1f, 1f) : new Color(0.15f, 0.15f, 0.15f, 1f);
-
         if (drones.size > 0) {
             int aliveDrones = 0;
             for (CombatDrone d : drones) if (d.state != DroneState.DESTROYED) aliveDrones++;
             font.draw(batch, "[" + stageTitle + "] 잔여탄: " + bulletsLeft + " / " + maxAmmo +
-                "  |  적 드론: " + aliveDrones + "기", 25, 575);
+                "  |  적 드론: " + aliveDrones + "기  (ESC: 일시정지, E: 표적확인)", 25, 575);
         } else {
-            int t1 = bulletHoles.size > 0 ? bulletHoles.get(0).size : 0;
-            int t2 = bulletHoles.size > 1 ? bulletHoles.get(1).size : 0;
-            int t3 = bulletHoles.size > 2 ? bulletHoles.get(2).size : 0;
-            font.draw(batch, "[" + stageTitle + "] 잔여탄: " + bulletsLeft + " / " + maxAmmo +
-                "  |  T1: " + t1 + "/5  T2: " + t2 + "/5  T3: " + t3 + "/3", 25, 575);
+            StringBuilder sb = new StringBuilder();
+            sb.append("[").append(stageTitle).append("] 잔여탄: ").append(bulletsLeft).append(" / ").append(maxAmmo).append("  |  ");
+            for (int i = 0; i < targets.size; i++) {
+                int count = i < bulletHoles.size ? bulletHoles.get(i).size : 0;
+                int req = i < targetsRequiredHits.size ? targetsRequiredHits.get(i) : 5;
+                sb.append("T").append(i + 1).append(": ").append(count).append("/").append(req).append("  ");
+            }
+            sb.append("(ESC: 일시정지, E: 표적확인)");
+            font.draw(batch, sb.toString(), 25, 575);
         }
 
-        font.setColor(timeColor);
-        font.draw(batch, "남은 시간: " + timeStr + "초", 650, 575);
+        // 시간제한이 있는 스테이지만 남은 시간 텍스트 출력
+        if (stageTimer > 0f) {
+            String timeStr = String.format("%.1f", Math.max(0f, stageTimer));
+            Color timeColor = (stageTimer <= 5.0f) ? new Color(0.85f, 0.1f, 0.1f, 1f) : new Color(0.15f, 0.15f, 0.15f, 1f);
+            font.setColor(timeColor);
+            font.draw(batch, "남은 시간: " + timeStr + "초", 650, 575);
+        }
 
         if (isPlayerDead) {
             font.setColor(new Color(1f, 0.1f, 0.1f, 1f));
             font.draw(batch, "★ 적 드론의 공격에 피격당했습니다! 사망 ★", 25, 550);
         } else if (stageClear) {
             font.setColor(new Color(0.1f, 0.65f, 0.2f, 1f));
-            font.draw(batch, "★ 임무 완수! [E]를 눌러 결과를 확인하세요. ★", 25, 550);
+            font.draw(batch, "★ 임무 완수! 과녁 결과를 확인하세요. ★", 25, 550);
         } else if (isTimeOver) {
             font.setColor(new Color(0.85f, 0.1f, 0.1f, 1f));
-            font.draw(batch, "★ 시간 초과! [E]를 눌러 다시 시도하세요. ★", 25, 550);
+            font.draw(batch, "★ 시간 초과! 결과를 확인하고 다시 시도하세요. ★", 25, 550);
         } else if (bulletsLeft <= 0) {
             font.setColor(new Color(0.85f, 0.1f, 0.1f, 1f));
-            font.draw(batch, "★ 잔여 탄약 소진! [E]를 눌러 상태를 확인하세요. ★", 25, 550);
+            font.draw(batch, "★ 잔여 탄약 소진! 과녁 결과를 확인하세요. ★", 25, 550);
         } else if (!stageHint.isEmpty()) {
             font.setColor(0.15f, 0.15f, 0.15f, 1f);
             font.draw(batch, stageHint, 25, 555);
@@ -841,7 +944,9 @@ public class Main extends ApplicationAdapter {
     private void renderTargetInspectionModal() {
         shapeRenderer.setProjectionMatrix(uiCamera.combined);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(0f, 0f, 0f, 0.85f);
+
+        // 1. 전체 모달 배경을 깔끔한 흰색(연한 아이보리 톤)으로 변경
+        shapeRenderer.setColor(0.96f, 0.96f, 0.98f, 0.95f);
         shapeRenderer.rect(0, 0, 800, 600);
 
         if (drones.size > 0) {
@@ -849,7 +954,7 @@ public class Main extends ApplicationAdapter {
                 shapeRenderer.setColor(0.85f, 0.2f, 0.2f, 1f);
                 shapeRenderer.rect(singleCenterBtn.x, singleCenterBtn.y, singleCenterBtn.width, singleCenterBtn.height);
             } else if (stageClear) {
-                shapeRenderer.setColor(0.2f, 0.7f, 0.3f, 1f);
+                shapeRenderer.setColor(0.18f, 0.65f, 0.28f, 1f);
                 shapeRenderer.rect(singleCenterBtn.x, singleCenterBtn.y, singleCenterBtn.width, singleCenterBtn.height);
             }
             shapeRenderer.end();
@@ -857,17 +962,19 @@ public class Main extends ApplicationAdapter {
             batch.setProjectionMatrix(uiCamera.combined);
             batch.begin();
             if (isPlayerDead) {
-                font.setColor(1f, 0.25f, 0.25f, 1f);
+                font.setColor(0.85f, 0.15f, 0.15f, 1f);
                 font.draw(batch, "★ 적 드론 피격으로 인한 전사 (KIA) ★", 280, 360);
-                font.setColor(Color.WHITE);
+                font.setColor(0.15f, 0.15f, 0.15f, 1f);
                 font.draw(batch, "적 드론의 공격 전에 먼저 조준하여 격추해야 합니다.", 225, 300);
+                font.setColor(Color.WHITE);
                 font.draw(batch, "다시 시도", singleCenterBtn.x + 36, singleCenterBtn.y + 26);
             } else if (stageClear) {
-                font.setColor(0.3f, 1f, 0.4f, 1f);
+                font.setColor(0.1f, 0.55f, 0.2f, 1f);
                 font.draw(batch, "★ 적 드론 격추 완료! MISSION CLEAR ★", 260, 360);
+                font.setColor(0.15f, 0.15f, 0.15f, 1f);
+                font.draw(batch, "모든 위협을 성공적으로 무력화했습니다.", 265, 300);
                 font.setColor(Color.WHITE);
-                font.draw(batch, "위협을 성공적으로 무력화했습니다.", 285, 300);
-                String nextText = nextStageId.isEmpty() ? "게임 완료" : "다음 단계";
+                String nextText = nextStageId.isEmpty() ? "게임 종료" : "다음 단계";
                 font.draw(batch, nextText, singleCenterBtn.x + 32, singleCenterBtn.y + 26);
             }
             batch.end();
@@ -886,7 +993,7 @@ public class Main extends ApplicationAdapter {
             shapeRenderer.rect(modalRestartBtn.x, modalRestartBtn.y, modalRestartBtn.width, modalRestartBtn.height);
 
             if (stageClear && !isTimeOver) {
-                shapeRenderer.setColor(0.2f, 0.65f, 0.25f, 1f);
+                shapeRenderer.setColor(0.18f, 0.65f, 0.28f, 1f);
                 shapeRenderer.rect(modalNextBtn.x, modalNextBtn.y, modalNextBtn.width, modalNextBtn.height);
             }
         }
@@ -896,33 +1003,35 @@ public class Main extends ApplicationAdapter {
         batch.begin();
         batch.draw(targetTexture, modalTargetX, modalTargetY, modalTargetW, modalTargetH);
 
-        font.setColor(Color.WHITE);
-        font.draw(batch, "표적 #" + (inspectingTargetIndex + 1) + " 탄착군 원격 검사 (←, → 키로 전환)", 250, 565);
+        // 흰색 배경에 맞춰 텍스트를 검정색 및 시인성 높은 색상으로 출력
+        font.setColor(0.15f, 0.15f, 0.15f, 1f);
+        font.draw(batch, "표적 #" + (inspectingTargetIndex + 1) + " 탄착군 결과 (←, → 키로 다른 과녁 전환)", 230, 565);
 
         boolean curSuccess = isTargetGroupingSuccess(inspectingTargetIndex);
         int reqHits = (inspectingTargetIndex < targetsRequiredHits.size) ? targetsRequiredHits.get(inspectingTargetIndex) : 5;
         int curHoles = (inspectingTargetIndex < bulletHoles.size) ? bulletHoles.get(inspectingTargetIndex).size : 0;
 
         if (curSuccess) {
-            font.setColor(0.3f, 1f, 0.4f, 1f);
+            font.setColor(0.1f, 0.6f, 0.2f, 1f);
             font.draw(batch, "[표적 #" + (inspectingTargetIndex + 1) + " 탄착군 통과 (" + curHoles + "/" + reqHits + ")]", 310, 150);
         } else {
-            font.setColor(1f, 0.35f, 0.35f, 1f);
+            font.setColor(0.85f, 0.2f, 0.2f, 1f);
             font.draw(batch, "[표적 #" + (inspectingTargetIndex + 1) + " 미달성 (" + curHoles + "/" + reqHits + " 요구)]", 310, 150);
         }
 
         if (isSessionOver) {
             if (stageClear && !isTimeOver) {
-                font.setColor(0.3f, 1f, 0.4f, 1f);
+                font.setColor(0.1f, 0.6f, 0.2f, 1f);
                 font.draw(batch, "★ 전체 표적 임무 완료! 합격 ★", 315, 60);
             } else if (isTimeOver) {
-                font.setColor(1f, 0.3f, 0.3f, 1f);
+                font.setColor(0.85f, 0.15f, 0.15f, 1f);
                 font.draw(batch, "제한 시간 초과: 다시 시도하세요.", 280, 60);
             } else {
-                font.setColor(1f, 0.3f, 0.3f, 1f);
+                font.setColor(0.85f, 0.15f, 0.15f, 1f);
                 font.draw(batch, "전체 기준 미달: 재사격이 필요합니다.", 275, 60);
             }
 
+            // 버튼 안의 글자는 흰색 유지
             font.setColor(Color.WHITE);
             font.draw(batch, "다시 시도", modalRestartBtn.x + 36, modalRestartBtn.y + 26);
             if (stageClear && !isTimeOver) {
@@ -930,6 +1039,7 @@ public class Main extends ApplicationAdapter {
                 font.draw(batch, nextText, modalNextBtn.x + 36, modalNextBtn.y + 26);
             }
         } else {
+            font.setColor(0.35f, 0.35f, 0.35f, 1f);
             font.draw(batch, "[E 또는 ESC를 눌러 닫기]", 310, 80);
         }
         batch.end();
@@ -945,7 +1055,7 @@ public class Main extends ApplicationAdapter {
 
                 shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
                 Gdx.gl.glLineWidth(2f);
-                shapeRenderer.setColor(curSuccess ? new Color(0.2f, 1f, 0.3f, 0.85f) : new Color(1f, 0.85f, 0.2f, 0.75f));
+                shapeRenderer.setColor(curSuccess ? new Color(0.1f, 0.7f, 0.2f, 0.9f) : new Color(0.9f, 0.5f, 0.1f, 0.9f));
                 shapeRenderer.circle(centerX, centerY, radius);
                 shapeRenderer.end();
                 Gdx.gl.glLineWidth(1f);
@@ -958,7 +1068,7 @@ public class Main extends ApplicationAdapter {
                 float hy = modalTargetY + hole.y * modalTargetH;
 
                 if (i == 0) {
-                    shapeRenderer.setColor(1f, 0.3f, 0.3f, 1f);
+                    shapeRenderer.setColor(1f, 0.2f, 0.2f, 1f);
                     shapeRenderer.circle(hx, hy, 9f);
                 }
 
@@ -989,16 +1099,28 @@ public class Main extends ApplicationAdapter {
     private void update(float dt) {
         if (dt <= 0) return;
 
+        if (!isInspectingTarget && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+            isPaused = true;
+            currentStance = AimStance.NONE;
+            return;
+        }
+
         for (CombatDrone drone : drones) {
             drone.update(dt, player.x, player.y, this);
         }
 
+        // 제한시간이 설정된 경우(stageTimer > 0)에만 타이머 감소
         if (!stageClear && !isInspectingTarget && !isTimeOver && !isPlayerDead) {
-            stageTimer -= dt;
-            if (stageTimer <= 0f) {
-                stageTimer = 0f;
-                isTimeOver = true;
-                currentStance = AimStance.NONE;
+            if (stageTimer > 0f) {
+                stageTimer -= dt;
+                if (stageTimer <= 0f) {
+                    stageTimer = 0f;
+                    isTimeOver = true;
+                    stopDroneSound();
+                    currentStance = AimStance.NONE;
+                    isInspectingTarget = true;
+                    inspectingTargetIndex = 0;
+                }
             }
         }
 
@@ -1006,6 +1128,8 @@ public class Main extends ApplicationAdapter {
         if (shootCooldown > 0) shootCooldown -= dt;
 
         if (isInspectingTarget) {
+            stopDroneSound();
+
             if (drones.size > 0) {
                 if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
                     mousePos.set(Gdx.input.getX(), Gdx.input.getY(), 0);
@@ -1015,8 +1139,11 @@ public class Main extends ApplicationAdapter {
                         loadStage(currentStageId);
                         return;
                     } else if (stageClear && singleCenterBtn.contains(mousePos.x, mousePos.y)) {
-                        if (!nextStageId.isEmpty()) loadStage(nextStageId);
-                        else loadStage(currentStageId);
+                        if (!nextStageId.isEmpty()) {
+                            loadStage(nextStageId);
+                        } else {
+                            Gdx.app.exit();
+                        }
                         return;
                     }
                 }
@@ -1046,20 +1173,19 @@ public class Main extends ApplicationAdapter {
                         return;
                     }
                 }
-            }
-
-            if (Gdx.input.isKeyJustPressed(Input.Keys.E) || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-                isInspectingTarget = false;
+            } else {
+                if (Gdx.input.isKeyJustPressed(Input.Keys.E) || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+                    isInspectingTarget = false;
+                }
             }
             return;
         }
 
-        int nearIdx = getNearbyTargetIndex();
-        boolean canOpenInspection = (nearIdx != -1) || (player.x < 300f && targets.size > 0) || isTimeOver;
-
-        if (canOpenInspection && Gdx.input.isKeyJustPressed(Input.Keys.E)) {
+        if (targets.size > 0 && Gdx.input.isKeyJustPressed(Input.Keys.E)) {
+            int nearIdx = getNearbyTargetIndex();
             isInspectingTarget = true;
-            if (nearIdx != -1) inspectingTargetIndex = nearIdx;
+            inspectingTargetIndex = (nearIdx != -1) ? nearIdx : 0;
+            currentStance = AimStance.NONE;
             stageClear = checkAllTargetsGroupingCleared();
             return;
         }
@@ -1117,7 +1243,6 @@ public class Main extends ApplicationAdapter {
             if (currentStance == AimStance.PRONE) stanceStability = 0.3f;
             else if (currentStance == AimStance.CROUCH) stanceStability = 0.7f;
 
-            // 3단계 드론 스테이지 떨림 배율: 락온 시 극도의 공포감 주입
             boolean anyDroneLockon = false;
             for (CombatDrone cd : drones) {
                 if (cd.state == DroneState.LOCKON || cd.state == DroneState.ATTACKING) {
@@ -1129,22 +1254,19 @@ public class Main extends ApplicationAdapter {
             float stage3TremorScale = 1.0f;
             float stage3SpeedScale = 1.0f;
             if (drones.size > 0) {
-                stage3TremorScale = anyDroneLockon ? 2.8f : 1.6f;
-                stage3SpeedScale = anyDroneLockon ? 2.4f : 1.4f;
+                stage3TremorScale = anyDroneLockon ? 1.5f : 1.2f;
+                stage3SpeedScale = anyDroneLockon ? 1.4f : 1.1f;
             }
 
             float swayMultiplier = (currentStance == AimStance.STAND) ? 1.3f : 1.0f;
             float swaySpeed = (isHoldingBreath ? 0.95f : (2.4f + exhaustion * 3.5f)) * stage3SpeedScale;
             swayTime += dt * swaySpeed * swayMultiplier;
 
-            // 기본 사인파 호흡 흔들림
             float frontSightSwayX = MathUtils.sin(swayTime * 1.5f) * (14.0f * stanceStability * breathStability * stage3TremorScale);
             float bodySwayX = frontSightSwayX * 0.85f;
             float bodySwayY = MathUtils.cos(swayTime * 1.8f) * (9.0f * stanceStability * breathStability * stage3TremorScale);
 
-            // 3단계 전용: 손이 사시나무 떨리듯 떨리는 고주파 지터(Jitter) 추가
             if (drones.size > 0) {
-                // 숨 참을 때 1.0px, 안 참을 때 3.0px 정도로 줄여서 사격 가능하게 조정
                 float jitterStrength = (isHoldingBreath ? 1.0f : 3.0f) * (anyDroneLockon ? 1.4f : 1.0f);
                 float jitterX = MathUtils.random(-jitterStrength, jitterStrength);
                 float jitterY = MathUtils.random(-jitterStrength, jitterStrength);
@@ -1266,9 +1388,9 @@ public class Main extends ApplicationAdapter {
         float tipX = frontSightPos.x + 138f;
         float tipY = frontSightPos.y + (FRONT_SIGHT_H / 2f) + 120f;
 
-        // 3단계 떨림에 비례하여 탄퍼짐 증폭
-        float spreadMultiplier = (drones.size > 0) ? 1.8f : 1.0f;
+        float spreadMultiplier = (drones.size > 0) ? 1.4f : 1.0f;
         float spreadRadius = 0.6f * stanceStability * breathStability * spreadMultiplier;
+
         float errorX = MathUtils.random(-spreadRadius, spreadRadius);
         float errorY = MathUtils.random(-spreadRadius, spreadRadius);
 
@@ -1284,7 +1406,6 @@ public class Main extends ApplicationAdapter {
             eyeY = player.y + player.height * 0.85f;
         }
 
-        // 1. 드론 피격 검사 (축소된 히트박스 영역)
         for (CombatDrone d : drones) {
             if (d.state != DroneState.DESTROYED && d.x + d.width > player.x) {
                 float dist = Math.max(60f, d.x - player.x);
@@ -1295,8 +1416,8 @@ public class Main extends ApplicationAdapter {
                 float screenX = 400f - (dw / 2f) + d.getScreenSwayX(scale);
                 float screenY = 300f + (d.y - eyeY);
 
-                float hitBoxW = dw * 0.60f;
-                float hitBoxH = dh * 0.65f;
+                float hitBoxW = dw * 0.19f;
+                float hitBoxH = dh * 0.17f;
                 float hitBoxX = screenX + (dw - hitBoxW) / 2f;
                 float hitBoxY = screenY + (dh - hitBoxH) / 2f;
 
@@ -1306,15 +1427,16 @@ public class Main extends ApplicationAdapter {
                     d.state = DroneState.DESTROYED;
                     if (checkAllTargetsGroupingCleared()) {
                         stageClear = true;
+                        stopDroneSound();
                         currentStance = AimStance.NONE;
                         isInspectingTarget = true;
+                        inspectingTargetIndex = 0;
                     }
                     return;
                 }
             }
         }
 
-        // 2. 일반 지상 표적지 피격 검사 (1, 2단계)
         Array<Integer> targetIndices = new Array<>();
         for (int i = 0; i < targets.size; i++) {
             if (targets.get(i).x + targets.get(i).width > player.x) {
@@ -1326,10 +1448,10 @@ public class Main extends ApplicationAdapter {
         for (int idx : targetIndices) {
             Rectangle t = targets.get(idx);
             float dist = Math.max(50f, t.x - player.x);
-            float scale = MathUtils.clamp(400f / dist, 0.3f, 2.5f);
+            float scale = MathUtils.clamp(400f / dist, 0.015f, 2.5f);
 
-            float targetW = 56f * scale;
-            float targetH = t.height * scale;
+            float targetW = Math.max(2f, 56f * scale);
+            float targetH = Math.max(4f, t.height * scale);
 
             float targetScreenX = 400f - (targetW / 2f);
             float targetScreenY = 300f + (t.y - eyeY);
@@ -1345,9 +1467,16 @@ public class Main extends ApplicationAdapter {
                     stageClear = true;
                     currentStance = AimStance.NONE;
                     isInspectingTarget = true;
+                    inspectingTargetIndex = 0;
                 }
                 break;
             }
+        }
+
+        if (bulletsLeft <= 0 && !stageClear) {
+            currentStance = AimStance.NONE;
+            isInspectingTarget = true;
+            inspectingTargetIndex = 0;
         }
     }
 
@@ -1403,6 +1532,8 @@ public class Main extends ApplicationAdapter {
 
     @Override
     public void dispose() {
+        stopDroneSound();
+
         batch.dispose();
         shapeRenderer.dispose();
         font.dispose();
@@ -1413,7 +1544,12 @@ public class Main extends ApplicationAdapter {
             }
         }
 
+        if (introMusic != null) {
+            introMusic.dispose();
+        }
+
         if (bgTexture != null) bgTexture.dispose();
+        if (stage3BgTexture != null && stage3BgTexture != bgTexture) stage3BgTexture.dispose();
         if (idleSheet != null) idleSheet.dispose();
         if (walkSheet != null) walkSheet.dispose();
         if (runSheet != null) runSheet.dispose();
@@ -1426,5 +1562,6 @@ public class Main extends ApplicationAdapter {
         gunBodyTexture.dispose();
         frontSightTexture.dispose();
         if (shotSound != null) shotSound.dispose();
+        if (droneSound != null) droneSound.dispose();
     }
 }
