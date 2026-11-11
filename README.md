@@ -2,15 +2,10 @@
 
 ## 실행방법
 https://drive.google.com/drive/folders/1sD63MHJ-J5m5PmPThw6pEQ6ZllOqON65?usp=sharing
-다운받은 후 파일압축을 풀고, 
+<br>다운받으신 후 파일압축을 풀고, 
 run.bat 을 실행시킵니다.
 
-A [libGDX](https://libgdx.com/) project generated with [gdx-liftoff](https://github.com/libgdx/gdx-liftoff).
-
-This project was generated with a template including simple application launchers and an `ApplicationAdapter` extension that draws libGDX logo.
-
 ## Platforms
-
 - `core`: Main module with the application logic shared by all platforms.
 - `lwjgl3`: Primary desktop platform using LWJGL3; was called 'desktop' in older docs.
 
